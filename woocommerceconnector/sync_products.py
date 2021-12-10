@@ -1,6 +1,5 @@
 from __future__ import unicode_literals
 import frappe
-from frappe.utils import cstr
 from frappe import _
 import requests.exceptions
 from .exceptions import woocommerceError
@@ -304,13 +303,13 @@ def get_categories(woocommerce_item, is_variant=False):
     else:
         try:
             erpnext_categories = frappe.db.sql(
-                """SELECT category as category FROM `tabItem Product Category` WHERE `parent` = '{item_code}'""".format(
+                """SELECT `category` FROM `tabItem Product Category` WHERE `parent` = '{item_code}'""".format(
                     item_code=woocommerce_item.name
                 ),
                 as_list=True,
             )
             for category in erpnext_categories:
-                categories.append({"category": category.category})
+                categories.append({"category": category[0]})
         except:
             pass
     return categories
@@ -347,7 +346,7 @@ def update_item(item_details, item_dict):
     if item_dict.get("warehouse"):
         del item_dict["warehouse"]
 
-    del item_dict["discription_ar"]
+    del item_dict["description"]
     del item_dict["item_code"]
     del item_dict["variant_of"]
     del item_dict["item_name"]
@@ -581,22 +580,23 @@ def get_erpnext_items(price_list):
             item_code,
             item_name,
             item_group,
+            description,
             discription_ar,
+            brand,
             woocommerce_description,
             has_variants,
             variant_of,
-            brand,
             stock_uom,
             image,
             woocommerce_product_id,
             woocommerce_variant_id,
             sync_qty_with_woocommerce,
             weight_per_unit,
-            weight_uom 
+            weight_uom
         FROM `tabItem`
-        WHERE sync_with_woocommerce = 1 
+        WHERE sync_with_woocommerce = 1
         AND (variant_of IS NULL OR variant_of = '')
-        AND (disabled IS NULL OR disabled = 0)  %s 
+        AND (disabled IS NULL OR disabled = 0)  %s
         """
         % last_sync_condition
     )
@@ -614,26 +614,27 @@ def get_erpnext_items(price_list):
         )
 
     item_from_item_price = """
-        SELECT 
-            `tabItem`.`name`, 
-            `tabItem`.`item_code`, 
-            `tabItem`.`item_name`, 
-            `tabItem`.`item_group`, 
-            `tabItem`.`discription_ar`,
-            `tabItem`.`woocommerce_description`, 
-            `tabItem`.`has_variants`, 
-            `tabItem`.`variant_of`, 
-            `tabItem`.`stock_uom`, 
-            `tabItem`.`image`, 
+        SELECT
+            `tabItem`.`name`,
+            `tabItem`.`item_code`,
+            `tabItem`.`item_name`,
+            `tabItem`.`item_group`,
+            `tabItem`.`description`,
+            `tabItem`.discription_ar,
+            `tabItem`.`woocommerce_description`,
+            `tabItem`.`has_variants`,
+            `tabItem`.`variant_of`,
+            `tabItem`.`stock_uom`,
+            `tabItem`.`image`,
             `tabItem`.`woocommerce_product_id`,
-            `tabItem`.`woocommerce_variant_id`, 
-            `tabItem`.`sync_qty_with_woocommerce`, 
-            `tabItem`.`weight_per_unit`, 
+            `tabItem`.`woocommerce_variant_id`,
+            `tabItem`.`sync_qty_with_woocommerce`,
+            `tabItem`.`weight_per_unit`,
             `tabItem`.`weight_uom`
         FROM `tabItem`, `tabItem Price`
-        WHERE `tabItem Price`.`price_list` = '%s' 
+        WHERE `tabItem Price`.`price_list` = '%s'
         AND `tabItem`.`name` = `tabItem Price`.`item_code`
-        AND `tabItem`.`sync_with_woocommerce` = 1 
+        AND `tabItem`.`sync_with_woocommerce` = 1
         AND (`tabItem`.`disabled` IS NULL OR `tabItem`.`disabled` = 0) %s
         """ % (
         price_list,
@@ -658,21 +659,11 @@ def sync_item_with_woocommerce(item, price_list, warehouse, woocommerce_item=Non
     variant_list = []
     item_data = {
         "name": item.get("item_name"),
-        "description": item.get("woocommerce_description")
-        or item.get("web_long_description")
-        or item.get("discription_ar"),
+        "description": item.get("discription_ar")
         "short_description": item.get("brand")
-        or item.get("web_long_description")
-        or item.get("discription_ar"),
         "sku": item.get("name"),
     }
-    #item_data.append(
-    #   {"attribute": 'Brand', "attribute_value": item.get("brand")}
-    #)
-    #attos = [{'Brand': item.get("brand")}]
-    #item_data["attributes"] = attos
-    #item_data["attribute_value"] = item.get("brand")
-    #item_data.update(get_price_and_stock_details(item, warehouse, price_list))
+    item_data.update(get_price_and_stock_details(item, warehouse, price_list))
 
     if item.get("has_variants"):  # we are dealing a variable product
         item_data["type"] = "variable"
@@ -971,7 +962,7 @@ def trigger_update_item_stock(doc, method):
             update_item_stock(doc.item_code, woocommerce_settings, doc)
 
 
-def update_item_stock_qty(force=False):
+def update_item_stock_qty():
     woocommerce_settings = frappe.get_doc("WooCommerce Config", "WooCommerce Config")
 
     for item in frappe.get_all(
@@ -980,7 +971,7 @@ def update_item_stock_qty(force=False):
         filters={"sync_qty_with_woocommerce": "1", "disabled": ("!=", 1)},
     ):
         try:
-            update_item_stock(item.item_code, woocommerce_settings, force=force)
+            update_item_stock(item.item_code, woocommerce_settings)
         except woocommerceError as e:
             make_woocommerce_log(
                 title="{0}".format(e),
@@ -1005,7 +996,7 @@ def update_item_stock_qty(force=False):
                 )
 
 
-def update_item_stock(item_code, woocommerce_settings, bin=None, force=False):
+def update_item_stock(item_code, woocommerce_settings, bin=None):
     item = frappe.get_doc("Item", item_code)
     if item.sync_qty_with_woocommerce:
         if not item.woocommerce_product_id:
@@ -1029,7 +1020,7 @@ def update_item_stock(item_code, woocommerce_settings, bin=None, force=False):
                 ),
                 as_list=True,
             )[0][0]
-            if bin_since_last_sync > 0 or force != False:
+            if bin_since_last_sync > 0:
                 bin = get_bin(item_code, woocommerce_settings.warehouse)
                 qty = bin.actual_qty
                 for warehouse in woocommerce_settings.warehouses:
@@ -1142,16 +1133,16 @@ def add_w_id_to_erp():
 def rewrite_stock_uom_from_wc_unit():
     woocommerce_settings = frappe.get_doc("WooCommerce Config", "WooCommerce Config")
     sql_query = """SELECT *
-        FROM (SELECT 
-          `tabItem`.`item_code`, 
+        FROM (SELECT
+          `tabItem`.`item_code`,
           `tabItem`.`stock_uom` ,
-          (SELECT `tabItem Variant Attribute`.`attribute_value` 
-           FROM `tabItem Variant Attribute` 
-           WHERE `tabItem Variant Attribute`.`parent` = `tabItem`.`name` 
-             AND `tabItem Variant Attribute`.`attribute` = "{unit}") AS `unit` 
+          (SELECT `tabItem Variant Attribute`.`attribute_value`
+           FROM `tabItem Variant Attribute`
+           WHERE `tabItem Variant Attribute`.`parent` = `tabItem`.`name`
+             AND `tabItem Variant Attribute`.`attribute` = "{unit}") AS `unit`
         FROM `tabItem`
         ) AS `raw`
-        WHERE 
+        WHERE
           `raw`.`unit` IS NOT NULL
           AND `raw`.`stock_uom` != `raw`.`unit`;""".format(
         unit=woocommerce_settings.attribute_for_uom
