@@ -304,13 +304,13 @@ def get_categories(woocommerce_item, is_variant=False):
     else:
         try:
             erpnext_categories = frappe.db.sql(
-                """SELECT `category` FROM `tabItem Product Category` WHERE `parent` = '{item_code}'""".format(
+                """SELECT category as category FROM `tabItem Product Category` WHERE `parent` = '{item_code}'""".format(
                     item_code=woocommerce_item.name
                 ),
                 as_list=True,
             )
             for category in erpnext_categories:
-                categories.append({"category": category[0]})
+                categories.append({"category": category.category})
         except:
             pass
     return categories
@@ -347,7 +347,7 @@ def update_item(item_details, item_dict):
     if item_dict.get("warehouse"):
         del item_dict["warehouse"]
 
-    del item_dict["description"]
+    del item_dict["discription_ar"]
     del item_dict["item_code"]
     del item_dict["variant_of"]
     del item_dict["item_name"]
@@ -581,10 +581,11 @@ def get_erpnext_items(price_list):
             item_code,
             item_name,
             item_group,
-            description,
+            discription_ar,
             woocommerce_description,
             has_variants,
             variant_of,
+            brand,
             stock_uom,
             image,
             woocommerce_product_id,
@@ -618,7 +619,7 @@ def get_erpnext_items(price_list):
             `tabItem`.`item_code`, 
             `tabItem`.`item_name`, 
             `tabItem`.`item_group`, 
-            `tabItem`.`description`,
+            `tabItem`.`discription_ar`,
             `tabItem`.`woocommerce_description`, 
             `tabItem`.`has_variants`, 
             `tabItem`.`variant_of`, 
@@ -659,13 +660,19 @@ def sync_item_with_woocommerce(item, price_list, warehouse, woocommerce_item=Non
         "name": item.get("item_name"),
         "description": item.get("woocommerce_description")
         or item.get("web_long_description")
-        or item.get("description"),
-        "short_description": item.get("woocommerce_description")
+        or item.get("discription_ar"),
+        "short_description": item.get("brand")
         or item.get("web_long_description")
-        or item.get("description"),
+        or item.get("discription_ar"),
         "sku": item.get("name"),
     }
-    item_data.update(get_price_and_stock_details(item, warehouse, price_list))
+    #item_data.append(
+    #   {"attribute": 'Brand', "attribute_value": item.get("brand")}
+    #)
+    #attos = [{'Brand': item.get("brand")}]
+    #item_data["attributes"] = attos
+    #item_data["attribute_value"] = item.get("brand")
+    #item_data.update(get_price_and_stock_details(item, warehouse, price_list))
 
     if item.get("has_variants"):  # we are dealing a variable product
         item_data["type"] = "variable"
